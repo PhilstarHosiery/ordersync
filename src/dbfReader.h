@@ -69,8 +69,11 @@ public:
     string getString(unsigned int fieldnum);
     // int getInt(string field);
     bool isClosedRow();
+    
+    int getFieldIndex(string fieldname);
 
 private:
+    bool strequali(string str1, string str2);
     string trimGet(char* src, int len);
 };
 

@@ -215,6 +215,36 @@ bool dbfReader::isClosedRow() {
     return bufoffset[0] == '*';
 }
 
+int dbfReader::getFieldIndex(string fieldname) {
+    int index = -1;
+    string tmp;
+    
+    for (int i=0 ; i<fieldcount ; i++) {
+        tmp = trimGet(fields[i].name, strlen(fields[i].name));
+
+        if (strequali(tmp, fieldname)) {
+            index = i;
+            break;
+        }
+    }
+    
+    return index;
+}
+
+bool dbfReader::strequali(string str1, string str2) {
+    if(str1.length() != str2.length()) {
+        return false;
+    }
+    
+    for(int i=0 ; i < str1.length() ; i++) {
+        if (tolower(str1[i]) != tolower(str2[i])) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 string dbfReader::trimGet(char* src, int len) {
     char temp[256];
 

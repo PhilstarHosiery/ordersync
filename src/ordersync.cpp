@@ -46,16 +46,22 @@ int main(int argc, char** argv) {
         // Build the map from DB
         generate_item_map(txn, m, m_trim);
         
-        /*
-        for(auto i : m) {
-            cout << i.first << " -> " << i.second << endl;
-        }
-        */
 
-        
+        // Prepare for FoxPro DBF reading...
         dbfReader reader;
         reader.open(dbffile);
-        
+
+        int ordernoIdx = reader.getFieldIndex("orderno");
+        int custvarIdx = reader.getFieldIndex("custvar");
+        int artconoIdx = reader.getFieldIndex("artcono");
+        int articleIdx = reader.getFieldIndex("article");
+        int orddateIdx = reader.getFieldIndex("orddate");
+        int barcode_idIdx = reader.getFieldIndex("barcode_id");
+        int colorwayIdx = reader.getFieldIndex("colorway");
+        int sizeIdx = reader.getFieldIndex("size");
+        int orderqtyIdx = reader.getFieldIndex("orderqty");
+        int quotaqtyIdx = reader.getFieldIndex("quotaqty");
+        int kniprodIdx = reader.getFieldIndex("kniprod");
         
         string orderno;
         string custvar;
@@ -67,7 +73,7 @@ int main(int argc, char** argv) {
         string orderqty;
         string quotaqty;
         
-        
+        // Loop through the DBF
         while (reader.next()) {
             /* Columns
              * 011: orderno VARCHAR(15)
@@ -77,41 +83,40 @@ int main(int argc, char** argv) {
              * 023: barcode_id VARCHAR(8)
              * 024: colorway VARCHAR(20)
              * 027: size VARCHAR(12)
-             * 030: orderqty NUMERIC(10,2)
-             * 031: quotaqty NUMERIC(10,2)
+             * 031: orderqty NUMERIC(10,2)
+             * 032: quotaqty NUMERIC(10,2)
              */
             
-            custvar = reader.getString(12);
-            orderno = reader.getString(15);
+            custvar = reader.getString(custvarIdx);
+            orderno = reader.getString(ordernoIdx);
             
             if (reader.isClosedRow()) {
                 // cout << "SKIP " << custvar << ", " << orderno << endl;
                 continue;
             }
             
-            artcono = reader.getString(13);
-            colorway = reader.getString(24);
-            size = reader.getString(27);
+            artcono = reader.getString(artconoIdx);
+            colorway = reader.getString(colorwayIdx);
+            size = reader.getString(sizeIdx);
             
-            orddate = reader.getString(15);
-            orderqty = reader.getString(30);
-            
-            
+            orddate = reader.getString(orddateIdx);
+            orderqty = reader.getString(orderqtyIdx);
+
             
             if (m[flatten_key(artcono, colorway, size)] == 0) {
                 if (m_trim[flatten_key(trim(artcono), trim(colorway), trim(size))] == 0) {
-                    if (orderqty != "0.00") {
-                        string kniprod = reader.getString(47);
+                    if (orderqty != "0.00" && orderqty != "") {
+                        string kniprod = reader.getString(kniprodIdx);
                         
                         if (!kniprod.empty()) { // kniprod
                             cout << " IGNORE NOT FOUND - " << orddate
-                                    << " : [" << artcono << "] " << reader.getString(14) << ", " << colorway << ", " << size
+                                    << " : [" << artcono << "] " << reader.getString(articleIdx) << ", " << colorway << ", " << size
                                     << " = " << orderqty << ", " << kniprod << endl;
                         } else {
-                            // cout << " IGNORE 0 kniprod: [" << artcono << "] " << reader.getString(14) << ", " << colorway << ", " << size << endl;
+                            // cout << " IGNORE 0 kniprod: [" << artcono << "] " << reader.getString(articleIdx) << ", " << colorway << ", " << size << endl;
                         }
                     } else {
-                        // cout << " IGNORE 0 order: [" << artcono << "] " << reader.getString(14) << ", " << colorway << ", " << size << endl;
+                        // cout << " IGNORE 0 order: [" << artcono << "] " << reader.getString(articleIdx) << ", " << colorway << ", " << size << endl;
                     }
                 } else {
                     // should be synced, trimmed
