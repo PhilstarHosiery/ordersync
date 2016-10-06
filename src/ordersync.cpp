@@ -12,12 +12,34 @@ using namespace std;
 
 #include "dbfReader.h"
 
-#define DIR "/storage/philstar/snapshot/phsystem.latest/"
 
+struct order {
+/*
+  id serial NOT NULL,
+  date date NOT NULL,
+  customer character varying(64) NOT NULL,
+  orderno character varying(64) NOT NULL,
+  item_id integer NOT NULL,
+  quantity integer NOT NULL,
+  quota integer NOT NULL,
+*/
+    int id;
+    string date;
+    string customer;
+    string orderno;
+    int item_id;
+    int quantity;
+    int quota;
+    string barcode_id;
+};
 
+void sync(pqxx::work &txn, map<string, order> &m, order ord);
+void generate_order_map(pqxx::work &txn, map<string, order> &m, set<string> &s);
 void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m_trim);
 string trim(string str);
 string flatten_key(string artcono, string color, string size);
+string getKey(order ord);
+string isoDate(string date);
 
 int main(int argc, char** argv) {
     
@@ -41,16 +63,32 @@ int main(int argc, char** argv) {
         pqxx::work txn(c);
 
         map<string, int> m;
-        map<string, int> m_trim;
+        map<string, int> mTrim;
+        set<string> sBarcodeId;
         
         // Build the map from DB
-        generate_item_map(txn, m, m_trim);
+        generate_item_map(txn, m, mTrim);
+        
+        
+        map<string, order> orderMap;
+        generate_order_map(txn, orderMap, sBarcodeId);
+        
+        
+        // stats
+        int total = 0;
+        int zeroorder = 0;
+        int zeroproduction = 0;
+        int ignore = 0;
+        int guess = 0;
+        int found = 0;
         
 
         // Prepare for FoxPro DBF reading...
         dbfReader reader;
         reader.open(dbffile);
 
+        int closechkIdx = reader.getFieldIndex("closechk");
+        int pantychkIdx = reader.getFieldIndex("pantychk");
         int ordernoIdx = reader.getFieldIndex("orderno");
         int custvarIdx = reader.getFieldIndex("custvar");
         int artconoIdx = reader.getFieldIndex("artcono");
@@ -63,6 +101,10 @@ int main(int argc, char** argv) {
         int quotaqtyIdx = reader.getFieldIndex("quotaqty");
         int kniprodIdx = reader.getFieldIndex("kniprod");
         
+        string closechk;
+        string pantychk;
+        string kniprod;
+        
         string orderno;
         string custvar;
         string artcono;
@@ -73,27 +115,34 @@ int main(int argc, char** argv) {
         string orderqty;
         string quotaqty;
         
+        
+        
+        c.prepare("add", "INSERT INTO \"production:order\" (date, customer, orderno, item_id, quantity, quota, barcode_id) VALUES ($1, $2, $3, $4, $5, $6, $7)");
+        c.prepare("update_date", "UPDATE \"production:order\" SET date=$1 WHERE id=$2");
+        c.prepare("update_customer", "UPDATE \"production:order\" SET customer=$1 WHERE id=$2");
+        c.prepare("update_orderno", "UPDATE \"production:order\" SET orderno=$1 WHERE id=$2");
+        c.prepare("update_item_id", "UPDATE \"production:order\" SET item_id=$1 WHERE id=$2");
+        c.prepare("update_quantity", "UPDATE \"production:order\" SET quantity=$1 WHERE id=$2");
+        c.prepare("update_quota", "UPDATE \"production:order\" SET quota=$1 WHERE id=$2");
+        c.prepare("del", "DELETE FROM \"production:order\" WHERE id=$1");
+        
+        int item;
+        order tmpOrder;
+        
         // Loop through the DBF
         while (reader.next()) {
-            /* Columns
-             * 011: orderno VARCHAR(15)
-             * 012: custvar VARCHAR(3)
-             * 013: artcono VARCHAR(8)
-             * 015: orddate DATE
-             * 023: barcode_id VARCHAR(8)
-             * 024: colorway VARCHAR(20)
-             * 027: size VARCHAR(12)
-             * 031: orderqty NUMERIC(10,2)
-             * 032: quotaqty NUMERIC(10,2)
-             */
             
             custvar = reader.getString(custvarIdx);
             orderno = reader.getString(ordernoIdx);
             
-            if (reader.isClosedRow()) {
+            if (reader.isClosedRow()) { // Skip closed rows
                 // cout << "SKIP " << custvar << ", " << orderno << endl;
                 continue;
             }
+            
+            closechk = reader.getString(closechkIdx);
+            pantychk = reader.getString(pantychkIdx);
+            kniprod = reader.getString(kniprodIdx);
             
             artcono = reader.getString(artconoIdx);
             colorway = reader.getString(colorwayIdx);
@@ -101,203 +150,109 @@ int main(int argc, char** argv) {
             
             orddate = reader.getString(orddateIdx);
             orderqty = reader.getString(orderqtyIdx);
-
+            quotaqty = reader.getString(quotaqtyIdx);
             
-            if (m[flatten_key(artcono, colorway, size)] == 0) {
-                if (m_trim[flatten_key(trim(artcono), trim(colorway), trim(size))] == 0) {
-                    if (orderqty != "0.00" && orderqty != "") {
-                        string kniprod = reader.getString(kniprodIdx);
-                        
+            if (orderqty == "") { // orderqty should be present.
+                continue;
+            }
+
+            if (quotaqty == "") { // quotaqty should be present.
+                continue;
+            }
+            
+            if (orddate == "") {
+                continue;
+            }
+            
+            if (pantychk == "T") {
+                continue;
+            }
+            
+            if (closechk == "T" && kniprod.empty()) {
+                continue;
+            }
+            
+            barcode_id = reader.getString(barcode_idIdx);
+            
+            // cout << " CHK: [" << closechk << "][" << kniprod << "]" << artcono << ", " << colorway << ", " << size << endl;
+            
+            item = m[flatten_key(artcono, colorway, size)];
+            if (item == 0) {
+                item = mTrim[flatten_key(trim(artcono), trim(colorway), trim(size))];
+                if (item == 0) {
+                    if (orderqty != "0.00" /* && orderqty != "" */) {
                         if (!kniprod.empty()) { // kniprod
                             cout << " IGNORE NOT FOUND - " << orddate
                                     << " : [" << artcono << "] " << reader.getString(articleIdx) << ", " << colorway << ", " << size
                                     << " = " << orderqty << ", " << kniprod << endl;
+                            
+                            ignore++;
                         } else {
                             // cout << " IGNORE 0 kniprod: [" << artcono << "] " << reader.getString(articleIdx) << ", " << colorway << ", " << size << endl;
+                            zeroproduction++;
                         }
                     } else {
                         // cout << " IGNORE 0 order: [" << artcono << "] " << reader.getString(articleIdx) << ", " << colorway << ", " << size << endl;
+                        zeroorder++;
                     }
                 } else {
                     // should be synced, trimmed
+                    tmpOrder.customer = custvar;
+                    tmpOrder.date = isoDate(orddate);
+                    tmpOrder.item_id = item;
+                    tmpOrder.orderno = orderno;
+                    tmpOrder.quantity = stoi(orderqty);
+                    tmpOrder.quota = stoi(quotaqty);
+                    tmpOrder.barcode_id = barcode_id;
+
+                    sync(txn, orderMap, tmpOrder);
+                    
+                    guess++;
                 }
             } else {
                 // should be synced, not trimmed
+                // if current row is in orderMap, check each item. if diff, update. remove from orderMap
+                // if not in orderMap, insert into DB.
+                tmpOrder.customer = custvar;
+                tmpOrder.date = isoDate(orddate);
+                tmpOrder.item_id = item;
+                tmpOrder.orderno = orderno;
+                tmpOrder.quantity = stoi(orderqty);
+                tmpOrder.quota = stoi(quotaqty);
+                tmpOrder.barcode_id = barcode_id;
+                
+                sync(txn, orderMap, tmpOrder);
+                
+                found++;
             }
-            // cout << flatten_key(artcono, colorway, size) << " : " << m[flatten_key(artcono, colorway, size)] << endl;
+            
+            total++;
         }
         
+        // if orderMap not empty, remove from DB
+        for (auto itr = orderMap.begin() ; itr != orderMap.end() ; itr++) {
+            cout << " DELETE " << itr->first << endl;
+            txn.prepared("del")(itr->second.id).exec();
+        }
+        
+        txn.commit();
+        
         m.clear();
-        m_trim.clear();
+        mTrim.clear();
         
         reader.close();
         
         
+        cout << "Stats (sock_item Identification)" << endl
+                << " Total             = " << total << endl
+                << " Found             = " << found << " (" << found * 100.0 / total << "%)" << endl
+                << " Guessed           = " << guess << " (" << guess * 100.0 / total << "%)" << endl
+                << " Ignored 0 Prod    = " << zeroproduction << " (" << zeroproduction * 100.0 / total << "%)" << endl
+                << " Ignored 0 Order   = " << zeroorder << " (" << zeroorder * 100.0 / total << "%)" << endl
+                << " Ignored Not Found = " << ignore << " (" << ignore * 100.0 / total << "%)" << endl;
+        
         
         c.disconnect();
-        
-        
-        /*
-        dbfReader color_reader;
-        string color_fn;
-        string artcono;
-        string article;
-        string size_index;
-        string size;
-        string color;
-
-        value_type value;
-
-        
-        set<string> pass_set;
-        map<string, string> size_map;
-
-
-
-
-        
-        // Prepare the filename map
-        fileFinder artcolor;
-        artcolor.openDir(DIR "ARTICLES/ARTCOLOR/");
-
-
-        // Counters
-        int add = 0;
-        int del = 0;
-        int update = 0;
-        int pass = 0;
-        int ignore = 0;
-        int total = 0;
-
-
-        // Prepared Statements
-        c.prepare("add", "INSERT INTO \"production:sock_item\" (artcono, size_index, article, color, size) VALUES ($1, $2, $3, $4, $5)");
-        c.prepare("update_article", "UPDATE \"production:sock_item\" SET article=$1 WHERE id=$2");
-        c.prepare("update_size", "UPDATE \"production:sock_item\" SET size=$1 WHERE id=$2");
-        c.prepare("del", "DELETE FROM \"production:sock_item\" WHERE id=$1");
-
-        
-        // Open articles.dbf and process each article
-        reader.open(DIR "articles.DBF");
-
-        while (reader.next()) {
-            // Columns
-            // 009: artcono VARCHAR(8)
-            // 010: article VARCHAR(30)
-            // 053: size01 VARCHAR(12)
-            // 063: size02 VARCHAR(12)
-            // 073: size03 VARCHAR(12)
-            // 083: size04 VARCHAR(12)
-            // 093: size05 VARCHAR(12)
-            // 103: size06 VARCHAR(12)
-
-            if (reader.isClosedRow()) {
-                // cout << "SKIP " << artcono << ", " << article << endl;
-                continue;
-            }
-                        
-            artcono = reader.getString(9);
-            article = reader.getString(10);
-
-            color_fn = artcolor.findFile(artcono + ".dbf");
-            if (color_fn.empty()) {
-                continue; // skip if no ARTCOLOR file exists
-            }
-
-            size_map.clear();
-            if (!reader.getString(53).empty()) size_map["1"] = reader.getString(53);
-            if (!reader.getString(63).empty()) size_map["2"] = reader.getString(63);
-            if (!reader.getString(73).empty()) size_map["3"] = reader.getString(73);
-            if (!reader.getString(83).empty()) size_map["4"] = reader.getString(83);
-            if (!reader.getString(93).empty()) size_map["5"] = reader.getString(93);
-            if (!reader.getString(103).empty()) size_map["6"] = reader.getString(103);
-
-            
-            // Open artcolor file and process each color
-            color_reader.open(COLOR_DIR + color_fn);
-
-            while (color_reader.next()) {
-                if (color_reader.isClosedRow()) {
-                    // cout << "SKIP DELETED COLOR: " << color_reader.getString(1) << endl;
-                    continue;
-                }
-                
-                color = color_reader.getString(1);
-
-                for (auto itr = size_map.begin(); itr != size_map.end(); ++itr) {
-                    size_index = itr->first;
-                    size = itr->second;
-
-                    auto it = m.find(flatten_key(artcono, color, size_index));
-                    if (it == m.end()) {
-                        // not found, add
-                        // (artcono, size_index, article, color, size)
-                        string flat_key = flatten_key(artcono, color, size_index);
-                        
-                        if (pass_set.find(flat_key) == pass_set.end()) {
-                            cout << " ADD [" << flat_key << "] " << article << " / " << size << endl;
-                            txn.prepared("add")(artcono) (size_index) (article) (color) (size).exec();
-                            pass_set.insert(flat_key);
-                            add++;
-                        } else {
-                            cout << " SKIP DUPLICATE [" << flat_key << "] " << article << " / " << size << endl;
-                            ignore++;
-                        }
-                    } else {
-                        // found, if same remove, else update
-                        value = it->second;
-
-                        bool updated = false;
-
-                        if (article != value.article) {
-                            cout << " UPDATE [" << flatten_key(artcono, color, size_index) << "] ARTICLE: " << value.article << " -> " << article << endl;
-                            txn.prepared("update_article")(article) (value.id).exec();
-                            updated = true;
-                        }
-
-                        if (size != value.size) {
-                            cout << " UPDATE [" << flatten_key(artcono, color, size_index) << "] SIZE: " << value.size << " -> " << size << endl;
-                            txn.prepared("update_size")(size) (value.id).exec();
-                            updated = true;
-                        }
-
-                        pass_set.insert(it->first);
-                        m.erase(it);
-                        // cout << " PASS [" << flatten_key(artcono, color, size_index) << "] " << article << " / " << size << endl;
-
-                        if (updated) {
-                            update++;
-                        } else {
-                            pass++;
-                        }
-                    }
-
-                    total++;
-                }
-            }
-        }
-
-        for (auto itr = m.begin(); itr != m.end(); ++itr) {
-            string key = itr->first;
-            value_type value = itr->second;
-
-            cout << " DELETE [" << key << "] --> " << value.id << ", " << value.article << ", " << value.size << endl;
-            txn.prepared("del")(value.id).exec();
-            del++;
-        }
-
-        txn.commit();
-
-        cout << pass << " rows passed" << endl;
-        cout << update << " rows updated" << endl;
-        cout << add << " rows added" << endl;
-        cout << del << " rows deleted" << endl;
-        cout << ignore << " rows ignored (duplicates)" << endl;
-        cout << total << " rows total" << endl;
-
-        
-         * 
-         * */
 
     } catch (const pqxx::pqxx_exception &e) {
         cerr << "pqxx_exception: " << e.base().what() << endl;
@@ -307,6 +262,79 @@ int main(int argc, char** argv) {
     }
 
     return 0;
+}
+
+void sync(pqxx::work &txn, map<string, order> &m, order ord) {
+//        c.prepare("add", "INSERT INTO \"production:order\" (date, customer, orderno, item_id, quantity, quota) VALUES ($1, $2, $3, $4, $5, $6)");
+//        c.prepare("update_date", "UPDATE \"production:order\" SET date=$1 WHERE id=$2");
+//        c.prepare("update_customer", "UPDATE \"production:order\" SET customer=$1 WHERE id=$2");
+//        c.prepare("update_orderno", "UPDATE \"production:order\" SET orderno=$1 WHERE id=$2");
+//        c.prepare("update_item_id", "UPDATE \"production:order\" SET item_id=$1 WHERE id=$2");
+//        c.prepare("update_quantity", "UPDATE \"production:order\" SET quantity=$1 WHERE id=$2");
+//        c.prepare("update_quota", "UPDATE \"production:order\" SET quota=$1 WHERE id=$2");
+        
+    auto itr = m.find(ord.barcode_id);
+    order ordm;
+    
+    if (itr != m.end()) {
+        ordm = itr->second;
+        
+        if (ordm.date != ord.date) {
+            cout << " UPDATE " << itr->first << " date at " << ordm.id << " : " << ordm.date << " -> " << ord.date << endl;
+            txn.prepared("update_date")(ord.date)(ordm.id).exec();
+        }
+        
+        if (ordm.customer != ord.customer) {
+            cout << " UPDATE " << itr->first << " customer at " << ordm.id << " : " << ordm.customer << " -> " << ord.customer << endl;
+            txn.prepared("update_customer")(ord.customer)(ordm.id).exec();
+        }
+        
+        if (ordm.orderno != ord.orderno) {
+            cout << " UPDATE " << itr->first << " orderno at " << ordm.id << " : " << ordm.orderno << " -> " << ord.orderno << endl;
+            txn.prepared("update_orderno")(ord.orderno)(ordm.id).exec();
+        }
+        
+        if (ordm.item_id != ord.item_id) {
+            cout << " UPDATE " << itr->first << " item_id at " << ordm.id << " : " << ordm.item_id << " -> " << ord.item_id << endl;
+            txn.prepared("update_item_id")(ord.item_id)(ordm.id).exec();
+        }
+        
+        if (ordm.quantity != ord.quantity) {
+            cout << " UPDATE " << itr->first << " quantity at " << ordm.id << " : " << ordm.quantity << " -> " << ord.quantity << endl;
+            txn.prepared("update_quantity")(ord.quantity)(ordm.id).exec();
+        }
+        
+        if (ordm.quota != ord.quota) {
+            cout << " UPDATE " << itr->first << " quota at " << ordm.id << " : " << ordm.quota << " -> " << ord.quota << endl;
+            txn.prepared("update_quota")(ord.quota)(ordm.id).exec();
+        }
+        
+        m.erase(itr);
+    } else {
+        cout << " NOT FOUND: INSERT " << getKey(ord) << endl;
+        txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id).exec();
+    }
+}
+
+void generate_order_map(pqxx::work &txn, map<string, order> &m, set<string> &s) {
+    pqxx::result r = txn.exec("SELECT * FROM \"production:order\"");
+    string barcode_id;
+    
+    for (auto i = 0 ; i != r.size() ; ++i) {
+        order tmp;
+        
+        r[i]["id"].to(tmp.id);
+        r[i]["date"].to(tmp.date);
+        r[i]["customer"].to(tmp.customer);
+        r[i]["orderno"].to(tmp.orderno);
+        r[i]["item_id"].to(tmp.item_id);
+        r[i]["quantity"].to(tmp.quantity);
+        r[i]["quota"].to(tmp.quota);
+        r[i]["barcode_id"].to(barcode_id);
+        
+        m[barcode_id] = tmp;
+        s.insert(barcode_id);
+    }
 }
 
 void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m_trim) {
@@ -328,8 +356,6 @@ void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m
         m[flatten_key(artcono, color, size)] = itemId;
         m_trim[flatten_key(trim(artcono), trim(color), trim(size))] = itemId;
     }
-
-    // txn.commit();
 }
 
 // trims paranthesis and all blanks
@@ -347,13 +373,17 @@ string trim(string str) {
     
     boost::trim(tmp);
     
-//    if (str.compare(tmp) != 0) {
-//        cout << "[" << str << "] -> [" << tmp << "]" << endl;
-//    }
-    
     return tmp;
 }
 
 string flatten_key(string artcono, string color, string size) {
     return artcono + "|||" + color + "|||" + size;
+}
+
+string getKey(order ord) {
+    return flatten_key(ord.customer, ord.orderno, to_string(ord.item_id));
+}
+
+string isoDate(string date) {
+    return date.substr(0, 4) + "-" + date.substr(4, 2) + "-" + date.substr(6, 2);
 }

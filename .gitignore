@@ -27,3 +27,9 @@
 *.exe
 *.out
 *.app
+
+*~
+data/*
+db.conf
+ordersync
+test.sh
