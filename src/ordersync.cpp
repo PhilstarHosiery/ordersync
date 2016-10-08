@@ -237,13 +237,13 @@ int main(int argc, char** argv) {
                 tmpOrder.barcode_id = barcode_id;
 
                 syncState = sync(txn, orderMap, tmpOrder);
-		if (syncState < 0) {
-		    insert++;
-		} else if (syncState == 0) {
-		    pass++;
-		} else {
-		    update++;
-		}
+                if (syncState < 0) {
+                    insert++;
+                } else if (syncState == 0) {
+                    pass++;
+                } else {
+                    update++;
+                }
 
                 found++;
             }
