@@ -331,44 +331,44 @@ int sync(pqxx::work &txn, map<string, order> &m, order ord) {
         if (ordm.date != ord.date) {
             cout << " UPDATE " << itr->first << " date at " << ordm.id << " : " << ordm.date << " -> " << ord.date << endl;
             txn.prepared("update_date")(ord.date)(ordm.id).exec();
-	    rtn++;
+	        rtn++;
         }
 
         if (ordm.customer != ord.customer) {
             cout << " UPDATE " << itr->first << " customer at " << ordm.id << " : " << ordm.customer << " -> " << ord.customer << endl;
             txn.prepared("update_customer")(ord.customer)(ordm.id).exec();
-	    rtn++;
+	        rtn++;
         }
 
         if (ordm.orderno != ord.orderno) {
             cout << " UPDATE " << itr->first << " orderno at " << ordm.id << " : " << ordm.orderno << " -> " << ord.orderno << endl;
             txn.prepared("update_orderno")(ord.orderno)(ordm.id).exec();
-	    rtn++;
+	        rtn++;
         }
 
         if (ordm.item_id != ord.item_id) {
             cout << " UPDATE " << itr->first << " item_id at " << ordm.id << " : " << ordm.item_id << " -> " << ord.item_id << endl;
             txn.prepared("update_item_id")(ord.item_id)(ordm.id).exec();
-	    rtn++;
+	        rtn++;
         }
 
         if (ordm.quantity != ord.quantity) {
             cout << " UPDATE " << itr->first << " quantity at " << ordm.id << " : " << ordm.quantity << " -> " << ord.quantity << endl;
             txn.prepared("update_quantity")(ord.quantity)(ordm.id).exec();
-	    rtn++;
+	        rtn++;
         }
 
         if (ordm.quota != ord.quota) {
             cout << " UPDATE " << itr->first << " quota at " << ordm.id << " : " << ordm.quota << " -> " << ord.quota << endl;
             txn.prepared("update_quota")(ord.quota)(ordm.id).exec();
-	    rtn++;
+	        rtn++;
         }
 
         m.erase(itr);
     } else {
         cout << " NOT FOUND: INSERT " << getKey(ord) << endl;
         txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id).exec();
-	rtn = -1;
+	    rtn = -1;
     }
 
     return rtn;
