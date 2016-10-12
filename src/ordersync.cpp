@@ -14,13 +14,15 @@ using namespace std;
 
 struct order {
     /*
-      id serial NOT NULL,
-      date date NOT NULL,
-      customer character varying(64) NOT NULL,
-      orderno character varying(64) NOT NULL,
-      item_id integer NOT NULL,
-      quantity integer NOT NULL,
-      quota integer NOT NULL,
+        id serial NOT NULL,
+        date date NOT NULL,
+        customer character varying(64) NOT NULL,
+        orderno character varying(64) NOT NULL,
+        item_id integer NOT NULL,
+        quantity integer NOT NULL,
+        quota integer NOT NULL,
+        barcode_id character varying(8) NOT NULL,
+        exfdate date,
      */
     int id;
     string date;
@@ -30,6 +32,7 @@ struct order {
     int quantity;
     int quota;
     string barcode_id;
+    string exfdate;
 };
 
 int sync(pqxx::work &txn, map<string, order> &m, order ord);
@@ -97,6 +100,7 @@ int main(int argc, char** argv) {
         // Find field indices
         int closechkIdx = reader.getFieldIndex("closechk");
         int pantychkIdx = reader.getFieldIndex("pantychk");
+        int yconlyIdx = reader.getFieldIndex("yconly");
         int ordernoIdx = reader.getFieldIndex("orderno");
         int custvarIdx = reader.getFieldIndex("custvar");
         int artconoIdx = reader.getFieldIndex("artcono");
@@ -108,10 +112,12 @@ int main(int argc, char** argv) {
         int orderqtyIdx = reader.getFieldIndex("orderqty");
         int quotaqtyIdx = reader.getFieldIndex("quotaqty");
         int kniprodIdx = reader.getFieldIndex("kniprod");
+        int exfdateIdx = reader.getFieldIndex("exfdate");
 
         // Field variables
         string closechk;
         string pantychk;
+        string yconly;
         string kniprod;
 
         string orderno;
@@ -123,15 +129,17 @@ int main(int argc, char** argv) {
         string size;
         string orderqty;
         string quotaqty;
+        string exfdate;
 
         // SQL prepared statements
-        c.prepare("add", "INSERT INTO \"production:order\" (date, customer, orderno, item_id, quantity, quota, barcode_id) VALUES ($1, $2, $3, $4, $5, $6, $7)");
+        c.prepare("add", "INSERT INTO \"production:order\" (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)");
         c.prepare("update_date", "UPDATE \"production:order\" SET date=$1 WHERE id=$2");
         c.prepare("update_customer", "UPDATE \"production:order\" SET customer=$1 WHERE id=$2");
         c.prepare("update_orderno", "UPDATE \"production:order\" SET orderno=$1 WHERE id=$2");
         c.prepare("update_item_id", "UPDATE \"production:order\" SET item_id=$1 WHERE id=$2");
         c.prepare("update_quantity", "UPDATE \"production:order\" SET quantity=$1 WHERE id=$2");
         c.prepare("update_quota", "UPDATE \"production:order\" SET quota=$1 WHERE id=$2");
+        c.prepare("update_exfdate", "UPDATE \"production:order\" SET exfdate=$1 WHERE id=$2");
         c.prepare("del", "DELETE FROM \"production:order\" WHERE id=$1");
 
         // Temporaries
@@ -152,6 +160,7 @@ int main(int argc, char** argv) {
 
             closechk = reader.getString(closechkIdx);
             pantychk = reader.getString(pantychkIdx);
+            yconly = reader.getString(yconlyIdx);
             kniprod = reader.getString(kniprodIdx);
 
             artcono = reader.getString(artconoIdx);
@@ -161,6 +170,7 @@ int main(int argc, char** argv) {
             orddate = reader.getString(orddateIdx);
             orderqty = reader.getString(orderqtyIdx);
             quotaqty = reader.getString(quotaqtyIdx);
+            exfdate = reader.getString(exfdateIdx);
 
             // Skip invalid rows
             if (orderqty == "") { // orderqty should be present.
@@ -176,6 +186,10 @@ int main(int argc, char** argv) {
             }
 
             if (pantychk == "T") {
+                continue;
+            }
+
+            if (yconly == "T") {
                 continue;
             }
 
@@ -212,6 +226,7 @@ int main(int argc, char** argv) {
                     tmpOrder.quantity = stoi(orderqty);
                     tmpOrder.quota = stoi(quotaqty);
                     tmpOrder.barcode_id = barcode_id;
+                    tmpOrder.exfdate = isoDate(exfdate);
 
                     syncState = sync(txn, orderMap, tmpOrder);
                     if (syncState < 0) {
@@ -235,6 +250,7 @@ int main(int argc, char** argv) {
                 tmpOrder.quantity = stoi(orderqty);
                 tmpOrder.quota = stoi(quotaqty);
                 tmpOrder.barcode_id = barcode_id;
+                tmpOrder.exfdate = isoDate(exfdate);
 
                 syncState = sync(txn, orderMap, tmpOrder);
                 if (syncState < 0) {
@@ -274,9 +290,9 @@ int main(int argc, char** argv) {
         cout << "Stats (sock_item Identification)" << endl
                 << " Total             = " << total << endl
                 << " Found             = " << found << " (" << found * 100.0 / total << "%)" << endl
-                << " Guessed           = " << guess << " (" << guess * 100.0 / total << "%)" << endl
+                << " Guessed             = " << guess << " (" << guess * 100.0 / total << "%)" << endl
                 << " Ignored 0 Prod    = " << zeroproduction << " (" << zeroproduction * 100.0 / total << "%)" << endl
-                << " Ignored 0 Order   = " << zeroorder << " (" << zeroorder * 100.0 / total << "%)" << endl
+                << " Ignored 0 Order     = " << zeroorder << " (" << zeroorder * 100.0 / total << "%)" << endl
                 << " Ignored Not Found = " << ignore << " (" << ignore * 100.0 / total << "%)" << endl;
 
         // Stats
@@ -291,10 +307,10 @@ int main(int argc, char** argv) {
         cout << "Stats (order Synchronization)" << endl
                 << " Total Initial = " << total_pre << endl
                 << " Passed        = " << pass << endl
-                << " Updated       = " << update << endl
-                << " Inserted  (+) = " << insert << endl
-                << " Deleted   (-) = " << del << endl
-                << " Total Final   = " << total_post << endl;
+                << " Updated         = " << update << endl
+                << " Inserted    (+) = " << insert << endl
+                << " Deleted     (-) = " << del << endl
+                << " Total Final     = " << total_post << endl;
                 
         // Close DB connection
         c.disconnect();
@@ -364,10 +380,16 @@ int sync(pqxx::work &txn, map<string, order> &m, order ord) {
 	        rtn++;
         }
 
+        if (ordm.exfdate != ord.exfdate) {
+            cout << " UPDATE " << itr->first << " exfdate at " << ordm.id << " : " << ordm.exfdate << " -> " << ord.exfdate << endl;
+            txn.prepared("update_exfdate")(ord.exfdate)(ordm.id).exec();
+	        rtn++;
+        }
+
         m.erase(itr);
     } else {
         cout << " NOT FOUND: INSERT " << getKey(ord) << endl;
-        txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id).exec();
+        txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id)(ord.exfdate).exec();
 	    rtn = -1;
     }
 
@@ -389,6 +411,7 @@ void generate_order_map(pqxx::work &txn, map<string, order> &m, set<string> &s) 
         r[i]["quantity"].to(tmp.quantity);
         r[i]["quota"].to(tmp.quota);
         r[i]["barcode_id"].to(barcode_id);
+        r[i]["exfdate"].to(tmp.exfdate);
 
         m[barcode_id] = tmp;
         s.insert(barcode_id);
