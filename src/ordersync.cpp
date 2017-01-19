@@ -12,7 +12,7 @@ using namespace std;
 
 #include "dbfReader.h"
 
-struct order {
+struct order_content {
     /*
         id serial NOT NULL,
         date date NOT NULL,
@@ -35,18 +35,35 @@ struct order {
     string exfdate;
 };
 
-int sync(pqxx::work &txn, map<string, order> &m, order ord);
+struct order {
+    /*
+        id integer NOT NULL DEFAULT nextval('"production:order_id_seq1"'::regclass),
+        name character varying(128) NOT NULL,
+        customer character varying(128) NOT NULL,
+        subclass character varying(128) NOT NULL,
+        date date NOT NULL,
+        order_group_id integer,
+     */
+    int id;
+    string name;
+    string customer;
+    // string subclass;
+    string date;
+};
+
+int sync(pqxx::work &txn, map<string, order_content> &m, order_content ord);
 void generate_order_map(pqxx::work &txn, map<string, order> &m, set<string> &s);
+void generate_order_content_map(pqxx::work &txn, map<string, order_content> &m, set<string> &s);
 void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m_trim);
 string trim(string str);
 string flatten_key(string artcono, string color, string size);
-string getKey(order ord);
+string getKey(order_content ord);
 string isoDate(string date);
 
 int main(int argc, char** argv) {
 
     if (argc != 3) {
-        cout << "Usage: ordersync [db.conf] [dbf file]" << endl;
+        cout << "Usage: ordersync [db.conf] [prosheet.dbf file]" << endl;
         return 1;
     }
 
@@ -70,12 +87,15 @@ int main(int argc, char** argv) {
         // Maps and sets
         map<string, int> m;
         map<string, int> mTrim;
-        set<string> sBarcodeId;
         map<string, order> orderMap;
+        set<string> sOrderNo;
+        set<string> sBarcodeId;
+        map<string, order_content> orderContentMap;
 
         // Build the maps from DB
         generate_item_map(txn, m, mTrim);
-        generate_order_map(txn, orderMap, sBarcodeId);
+        generate_order_map(txn, orderMap, sOrderNo);
+        generate_order_content_map(txn, orderContentMap, sBarcodeId);
 
         // Stats
         int total = 0;
@@ -86,7 +106,7 @@ int main(int argc, char** argv) {
         int found = 0;
         
         // Stats
-        int total_pre = orderMap.size();
+        int total_pre = orderContentMap.size();
         int pass = 0;
         int update = 0;
         int insert = 0;
@@ -132,19 +152,19 @@ int main(int argc, char** argv) {
         string exfdate;
 
         // SQL prepared statements
-        c.prepare("add", "INSERT INTO \"production:order\" (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)");
-        c.prepare("update_date", "UPDATE \"production:order\" SET date=$1 WHERE id=$2");
-        c.prepare("update_customer", "UPDATE \"production:order\" SET customer=$1 WHERE id=$2");
-        c.prepare("update_orderno", "UPDATE \"production:order\" SET orderno=$1 WHERE id=$2");
-        c.prepare("update_item_id", "UPDATE \"production:order\" SET item_id=$1 WHERE id=$2");
-        c.prepare("update_quantity", "UPDATE \"production:order\" SET quantity=$1 WHERE id=$2");
-        c.prepare("update_quota", "UPDATE \"production:order\" SET quota=$1 WHERE id=$2");
-        c.prepare("update_exfdate", "UPDATE \"production:order\" SET exfdate=$1 WHERE id=$2");
-        c.prepare("del", "DELETE FROM \"production:order\" WHERE id=$1");
+        c.prepare("add", "INSERT INTO \"production:order_content\" (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)");
+        c.prepare("update_date", "UPDATE \"production:order_content\" SET date=$1 WHERE id=$2");
+        c.prepare("update_customer", "UPDATE \"production:order_content\" SET customer=$1 WHERE id=$2");
+        c.prepare("update_orderno", "UPDATE \"production:order_content\" SET orderno=$1 WHERE id=$2");
+        c.prepare("update_item_id", "UPDATE \"production:order_content\" SET item_id=$1 WHERE id=$2");
+        c.prepare("update_quantity", "UPDATE \"production:order_content\" SET quantity=$1 WHERE id=$2");
+        c.prepare("update_quota", "UPDATE \"production:order_content\" SET quota=$1 WHERE id=$2");
+        c.prepare("update_exfdate", "UPDATE \"production:order_content\" SET exfdate=$1 WHERE id=$2");
+        c.prepare("del", "DELETE FROM \"production:order_content\" WHERE id=$1");
 
         // Temporaries
         int item;
-        order tmpOrder;
+        order_content tmpOrder;
         int syncState;
 
         // Loop through the items in prosheet.DBF
@@ -228,7 +248,7 @@ int main(int argc, char** argv) {
                     tmpOrder.barcode_id = barcode_id;
                     tmpOrder.exfdate = isoDate(exfdate);
 
-                    syncState = sync(txn, orderMap, tmpOrder);
+                    syncState = sync(txn, orderContentMap, tmpOrder);
                     if (syncState < 0) {
                         insert++;
                     } else if (syncState == 0) {
@@ -252,7 +272,7 @@ int main(int argc, char** argv) {
                 tmpOrder.barcode_id = barcode_id;
                 tmpOrder.exfdate = isoDate(exfdate);
 
-                syncState = sync(txn, orderMap, tmpOrder);
+                syncState = sync(txn, orderContentMap, tmpOrder);
                 if (syncState < 0) {
                     insert++;
                 } else if (syncState == 0) {
@@ -274,14 +294,14 @@ int main(int argc, char** argv) {
         sBarcodeId.clear();
         
         // if orderMap not empty, remove from DB
-        for (auto itr = orderMap.begin(); itr != orderMap.end(); itr++) {
+        for (auto itr = orderContentMap.begin(); itr != orderContentMap.end(); itr++) {
             cout << " DELETE " << itr->first << endl;
             txn.prepared("del")(itr->second.id).exec();
             del++;
         }
         
         // Release orderMap
-        orderMap.clear();
+        orderContentMap.clear();
         
         // Commit changes made to SQL
         txn.commit();
@@ -290,9 +310,9 @@ int main(int argc, char** argv) {
         cout << "Stats (sock_item Identification)" << endl
                 << " Total             = " << total << endl
                 << " Found             = " << found << " (" << found * 100.0 / total << "%)" << endl
-                << " Guessed             = " << guess << " (" << guess * 100.0 / total << "%)" << endl
+                << " Guessed           = " << guess << " (" << guess * 100.0 / total << "%)" << endl
                 << " Ignored 0 Prod    = " << zeroproduction << " (" << zeroproduction * 100.0 / total << "%)" << endl
-                << " Ignored 0 Order     = " << zeroorder << " (" << zeroorder * 100.0 / total << "%)" << endl
+                << " Ignored 0 Order   = " << zeroorder << " (" << zeroorder * 100.0 / total << "%)" << endl
                 << " Ignored Not Found = " << ignore << " (" << ignore * 100.0 / total << "%)" << endl;
 
         // Stats
@@ -305,8 +325,8 @@ int main(int argc, char** argv) {
         total_post = total_pre + insert - del;
 
         cout << "Stats (order Synchronization)" << endl
-                << " Total Initial = " << total_pre << endl
-                << " Passed        = " << pass << endl
+                << " Total Initial   = " << total_pre << endl
+                << " Passed          = " << pass << endl
                 << " Updated         = " << update << endl
                 << " Inserted    (+) = " << insert << endl
                 << " Deleted     (-) = " << del << endl
@@ -328,17 +348,17 @@ int main(int argc, char** argv) {
 
 // Synchronization
 // return: -1 if new insert, 0+ for number of updates (0 means found without update, ie pass)
-int sync(pqxx::work &txn, map<string, order> &m, order ord) {
-    //        c.prepare("add", "INSERT INTO \"production:order\" (date, customer, orderno, item_id, quantity, quota) VALUES ($1, $2, $3, $4, $5, $6)");
-    //        c.prepare("update_date", "UPDATE \"production:order\" SET date=$1 WHERE id=$2");
-    //        c.prepare("update_customer", "UPDATE \"production:order\" SET customer=$1 WHERE id=$2");
-    //        c.prepare("update_orderno", "UPDATE \"production:order\" SET orderno=$1 WHERE id=$2");
-    //        c.prepare("update_item_id", "UPDATE \"production:order\" SET item_id=$1 WHERE id=$2");
-    //        c.prepare("update_quantity", "UPDATE \"production:order\" SET quantity=$1 WHERE id=$2");
-    //        c.prepare("update_quota", "UPDATE \"production:order\" SET quota=$1 WHERE id=$2");
+int sync(pqxx::work &txn, map<string, order_content> &m, order_content ord) {
+    //        c.prepare("add", "INSERT INTO \"production:order_content\" (date, customer, orderno, item_id, quantity, quota) VALUES ($1, $2, $3, $4, $5, $6)");
+    //        c.prepare("update_date", "UPDATE \"production:order_content\" SET date=$1 WHERE id=$2");
+    //        c.prepare("update_customer", "UPDATE \"production:order_content\" SET customer=$1 WHERE id=$2");
+    //        c.prepare("update_orderno", "UPDATE \"production:order_content\" SET orderno=$1 WHERE id=$2");
+    //        c.prepare("update_item_id", "UPDATE \"production:order_content\" SET item_id=$1 WHERE id=$2");
+    //        c.prepare("update_quantity", "UPDATE \"production:order_content\" SET quantity=$1 WHERE id=$2");
+    //        c.prepare("update_quota", "UPDATE \"production:order_content\" SET quota=$1 WHERE id=$2");
 
     auto itr = m.find(ord.barcode_id);
-    order ordm;
+    order_content ordm;
     int rtn = 0;
 
     if (itr != m.end()) {
@@ -398,10 +418,26 @@ int sync(pqxx::work &txn, map<string, order> &m, order ord) {
 
 void generate_order_map(pqxx::work &txn, map<string, order> &m, set<string> &s) {
     pqxx::result r = txn.exec("SELECT * FROM \"production:order\"");
+    
+    for (auto i = 0 ; i != r.size() ; ++i) {
+        order tmp;
+        
+        r[i]["id"].to(tmp.id);
+        r[i]["name"].to(tmp.name);
+        r[i]["customer"].to(tmp.customer);
+        r[i]["date"].to(tmp.date);
+        
+        m[tmp.name] = tmp;
+        s.insert(tmp.name);
+    }
+}
+
+void generate_order_content_map(pqxx::work &txn, map<string, order_content> &m, set<string> &s) {
+    pqxx::result r = txn.exec("SELECT * FROM \"production:order_content\"");
     string barcode_id;
 
     for (auto i = 0; i != r.size(); ++i) {
-        order tmp;
+        order_content tmp;
 
         r[i]["id"].to(tmp.id);
         r[i]["date"].to(tmp.date);
@@ -419,7 +455,7 @@ void generate_order_map(pqxx::work &txn, map<string, order> &m, set<string> &s) 
 }
 
 void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m_trim) {
-    pqxx::result r = txn.exec("SELECT * FROM \"production:sock_item\" ORDER BY artcono, color, size");
+    pqxx::result r = txn.exec("SELECT \"sock:item\".item_id, \"sock:article\".artcono, \"sock:color\".name as color, \"sock:size\".name as size FROM \"sock:article\", \"sock:color\", \"sock:size\", \"sock:item\" WHERE \"sock:item\".article_id = \"sock:article\".article_id AND \"sock:item\".color_id = \"sock:color\".color_id AND \"sock:item\".size_id = \"sock:size\".size_id");
 
     for (pqxx::result::size_type i = 0; i != r.size(); ++i) {
         string artcono;
@@ -431,9 +467,9 @@ void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m
         r[i]["color"].to(color);
         r[i]["size"].to(size);
 
-        r[i]["id"].to(itemId);
+        r[i]["item_id"].to(itemId);
 
-        // cout << key.art << ", " << key.col << ", " << key.siz << " --> " << value.art << ", " << value.col << ", " << value.siz << endl;
+        // cout << artcono << ", " << color << ", " << size << " --> " << value.art << ", " << value.col << ", " << value.siz << endl;
         m[flatten_key(artcono, color, size)] = itemId;
         m_trim[flatten_key(trim(artcono), trim(color), trim(size))] = itemId;
     }
@@ -461,7 +497,7 @@ string flatten_key(string artcono, string color, string size) {
     return artcono + "|||" + color + "|||" + size;
 }
 
-string getKey(order ord) {
+string getKey(order_content ord) {
     return flatten_key(ord.customer, ord.orderno, to_string(ord.item_id));
 }
 
