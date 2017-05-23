@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
         string exfdate;
 
         // SQL prepared statements
-        c.prepare("add", "INSERT INTO \"production:order_content\" (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)");
+        c.prepare("add", "INSERT INTO \"production:order_content\" (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate, order_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)");
         c.prepare("update_date", "UPDATE \"production:order_content\" SET date=$1 WHERE id=$2");
         c.prepare("update_customer", "UPDATE \"production:order_content\" SET customer=$1 WHERE id=$2");
         c.prepare("update_orderno", "UPDATE \"production:order_content\" SET orderno=$1 WHERE id=$2");
@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
             // Find item id, and sync accordingly
             item = m[flatten_key(artcono, colorway, size)];
             order_id = syncAndFindOrderId(txn, orderMap, orderno, custvar, orddate);
-
+            
             if (item == 0) {
                 item = mTrim[flatten_key(trim(artcono), trim(colorway), trim(size))];
                 if (item == 0) {
@@ -428,7 +428,7 @@ int sync(pqxx::work &txn, map<string, order_content> &m, order_content ord) {
         m.erase(itr);
     } else {
         cout << " NOT FOUND: INSERT " << getKey(ord) << endl;
-        txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id)(ord.exfdate).exec();
+        txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id)(ord.exfdate)(ord.order_id).exec();
         rtn = -1;
     }
 
@@ -447,7 +447,7 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
         // insert new order entry in DB
         txn.conn().prepare("add_order", "INSERT INTO \"production:order\" (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
         pqxx::result r = txn.prepared("add_order")(name)(customer)(isodate).exec();
-
+        
         if (r.size() != 1) { // if above query returns non-1 results, something is wrong.
             return -1;
         }
@@ -456,20 +456,23 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
         r[0]["id"].to(id);
         
         // Create an order and insert into the order map
-        order tmp;
+        struct order tmp;
         tmp.id = id;
         tmp.name = name;
         tmp.customer = customer;
-        tmp.date = date;
+        tmp.date = isodate;
         
-        m.insert(tmp);
+	m[name] = tmp;
         
         return id;
 
     } else {
-        if (order->second.name != name || order->second.customer != customer || order->second.date != isodate) {
+        if (order->second.name != name || order->second.customer != customer) {
             cout << " (" << name << ", " << customer << ", " << isodate << ") != existing ("
-                    << order->second.name << ", " << order->second.customer << ", " << order->second.date << ")" << endl;
+                    << order->second.name << ", " << order->second.customer << ", " << order->second.date << "), ignore and using initial values." << endl;
+        } else if (order->second.date != isodate) {
+            cout << " Order date for [" << name << ", " << customer << "] (" << isodate << ") != existing ("
+                    << order->second.date << "), ignore and using initial date." << endl;
         }
 
         return order->second.id;
@@ -552,7 +555,7 @@ string trim(string str) {
     }
 
     boost::trim(tmp);
-
+    
     return tmp;
 }
 
