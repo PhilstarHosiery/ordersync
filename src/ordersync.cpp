@@ -520,7 +520,7 @@ void generate_order_content_map(pqxx::work &txn, map<string, order_content> &m, 
 }
 
 void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m_trim) {
-    pqxx::result r = txn.exec("SELECT \"sock:item\".item_id, production.sock_article.artcono, \"sock:color\".name as color, \"sock:size\".name as size FROM production.sock_article, \"sock:color\", \"sock:size\", \"sock:item\" WHERE \"sock:item\".article_id = production.sock_article.article_id AND \"sock:item\".color_id = \"sock:color\".color_id AND \"sock:item\".size_id = \"sock:size\".size_id");
+    pqxx::result r = txn.exec("SELECT production.sock_item.item_id, production.sock_article.artcono, production.sock_color.name as color, production.sock_size.name as size FROM production.sock_article, production.sock_color, production.sock_size, production.sock_item WHERE production.sock_item.article_id = production.sock_article.article_id AND production.sock_item.color_id = production.sock_color.color_id AND production.sock_item.size_id = production.sock_size.size_id");
 
     for (pqxx::result::size_type i = 0; i != r.size(); ++i) {
         string artcono;
