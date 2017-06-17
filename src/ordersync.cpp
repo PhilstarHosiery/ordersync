@@ -471,8 +471,9 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
             cout << " (" << name << ", " << customer << ", " << isodate << ") != existing ("
                     << order->second.name << ", " << order->second.customer << ", " << order->second.date << "), ignore and using initial values." << endl;
         } else if (order->second.date != isodate) {
-            cout << " Order date for [" << name << ", " << customer << "] (" << isodate << ") != existing ("
-                    << order->second.date << "), ignore and using initial date." << endl;
+            // Order date is meaningless at this point. Kepp the output clean.
+            // cout << " Order date for [" << name << ", " << customer << "] (" << isodate << ") != existing ("
+            //         << order->second.date << "), ignore and using initial date." << endl;
         }
 
         return order->second.id;
