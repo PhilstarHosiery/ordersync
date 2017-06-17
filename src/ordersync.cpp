@@ -158,16 +158,16 @@ int main(int argc, char** argv) {
         string exfdate;
 
         // SQL prepared statements
-        c.prepare("add", "INSERT INTO \"production:order_content\" (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate, order_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)");
-        c.prepare("update_date", "UPDATE \"production:order_content\" SET date=$1 WHERE id=$2");
-        c.prepare("update_customer", "UPDATE \"production:order_content\" SET customer=$1 WHERE id=$2");
-        c.prepare("update_orderno", "UPDATE \"production:order_content\" SET orderno=$1 WHERE id=$2");
-        c.prepare("update_item_id", "UPDATE \"production:order_content\" SET item_id=$1 WHERE id=$2");
-        c.prepare("update_quantity", "UPDATE \"production:order_content\" SET quantity=$1 WHERE id=$2");
-        c.prepare("update_quota", "UPDATE \"production:order_content\" SET quota=$1 WHERE id=$2");
-        c.prepare("update_exfdate", "UPDATE \"production:order_content\" SET exfdate=$1 WHERE id=$2");
-        c.prepare("update_order_id", "UPDATE \"production:order_content\" SET order_id=$1 WHERE id=$2");
-        c.prepare("del", "DELETE FROM \"production:order_content\" WHERE id=$1");
+        c.prepare("add", "INSERT INTO production.order_content (date, customer, orderno, item_id, quantity, quota, barcode_id, exfdate, order_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)");
+        c.prepare("update_date", "UPDATE production.order_content SET date=$1 WHERE id=$2");
+        c.prepare("update_customer", "UPDATE production.order_content SET customer=$1 WHERE id=$2");
+        c.prepare("update_orderno", "UPDATE production.order_content SET orderno=$1 WHERE id=$2");
+        c.prepare("update_item_id", "UPDATE production.order_content SET item_id=$1 WHERE id=$2");
+        c.prepare("update_quantity", "UPDATE production.order_content SET quantity=$1 WHERE id=$2");
+        c.prepare("update_quota", "UPDATE production.order_content SET quota=$1 WHERE id=$2");
+        c.prepare("update_exfdate", "UPDATE production.order_content SET exfdate=$1 WHERE id=$2");
+        c.prepare("update_order_id", "UPDATE production.order_content SET order_id=$1 WHERE id=$2");
+        c.prepare("del", "DELETE FROM production.order_content WHERE id=$1");
 
         // Temporaries
         int item;
@@ -362,13 +362,13 @@ int main(int argc, char** argv) {
 // return: -1 if new insert, 0+ for number of updates (0 means found without update, ie pass)
 
 int sync(pqxx::work &txn, map<string, order_content> &m, order_content ord) {
-    //        c.prepare("add", "INSERT INTO \"production:order_content\" (date, customer, orderno, item_id, quantity, quota) VALUES ($1, $2, $3, $4, $5, $6)");
-    //        c.prepare("update_date", "UPDATE \"production:order_content\" SET date=$1 WHERE id=$2");
-    //        c.prepare("update_customer", "UPDATE \"production:order_content\" SET customer=$1 WHERE id=$2");
-    //        c.prepare("update_orderno", "UPDATE \"production:order_content\" SET orderno=$1 WHERE id=$2");
-    //        c.prepare("update_item_id", "UPDATE \"production:order_content\" SET item_id=$1 WHERE id=$2");
-    //        c.prepare("update_quantity", "UPDATE \"production:order_content\" SET quantity=$1 WHERE id=$2");
-    //        c.prepare("update_quota", "UPDATE \"production:order_content\" SET quota=$1 WHERE id=$2");
+    //        c.prepare("add", "INSERT INTO production.order_content (date, customer, orderno, item_id, quantity, quota) VALUES ($1, $2, $3, $4, $5, $6)");
+    //        c.prepare("update_date", "UPDATE production.order_content SET date=$1 WHERE id=$2");
+    //        c.prepare("update_customer", "UPDATE production.order_content SET customer=$1 WHERE id=$2");
+    //        c.prepare("update_orderno", "UPDATE production.order_content SET orderno=$1 WHERE id=$2");
+    //        c.prepare("update_item_id", "UPDATE production.order_content SET item_id=$1 WHERE id=$2");
+    //        c.prepare("update_quantity", "UPDATE production.order_content SET quantity=$1 WHERE id=$2");
+    //        c.prepare("update_quota", "UPDATE production.order_content SET quota=$1 WHERE id=$2");
 
     auto itr = m.find(ord.barcode_id);
     order_content ordm;
@@ -445,7 +445,7 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
     auto order = m.find(name);
     if (order == m.end()) {
         // insert new order entry in DB
-        txn.conn().prepare("add_order", "INSERT INTO \"production:order\" (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
+        txn.conn().prepare("add_order", "INSERT INTO production.order (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
         pqxx::result r = txn.prepared("add_order")(name)(customer)(isodate).exec();
         
         if (r.size() != 1) { // if above query returns non-1 results, something is wrong.
@@ -482,7 +482,7 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
 }
 
 void generate_order_map(pqxx::work &txn, map<string, order> &m) {
-    pqxx::result r = txn.exec("SELECT * FROM \"production:order\"");
+    pqxx::result r = txn.exec("SELECT * FROM production.order");
 
     for (auto i = 0; i != r.size(); ++i) {
         order tmp;
@@ -497,7 +497,7 @@ void generate_order_map(pqxx::work &txn, map<string, order> &m) {
 }
 
 void generate_order_content_map(pqxx::work &txn, map<string, order_content> &m, set<string> &s) {
-    pqxx::result r = txn.exec("SELECT * FROM \"production:order_content\"");
+    pqxx::result r = txn.exec("SELECT * FROM production.order_content");
     string barcode_id;
 
     for (auto i = 0; i != r.size(); ++i) {
