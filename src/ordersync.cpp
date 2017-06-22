@@ -31,6 +31,7 @@ struct order_content {
     string barcode_id;
     string exfdate;
     int order_id;
+    bool closed;
 
     // to be removed later...
     string date;
@@ -167,6 +168,7 @@ int main(int argc, char** argv) {
         c.prepare("update_quota", "UPDATE production.order_content SET quota=$1 WHERE id=$2");
         c.prepare("update_exfdate", "UPDATE production.order_content SET exfdate=$1 WHERE id=$2");
         c.prepare("update_order_id", "UPDATE production.order_content SET order_id=$1 WHERE id=$2");
+        c.prepare("update_closed", "UPDATE production.order_content SET closed=$1 WHERE id=$2");
         c.prepare("del", "DELETE FROM production.order_content WHERE id=$1");
 
         // Temporaries
@@ -228,7 +230,7 @@ int main(int argc, char** argv) {
             // Find item id, and sync accordingly
             item = m[flatten_key(artcono, colorway, size)];
             order_id = syncAndFindOrderId(txn, orderMap, orderno, custvar, orddate);
-            
+
             if (item == 0) {
                 item = mTrim[flatten_key(trim(artcono), trim(colorway), trim(size))];
                 if (item == 0) {
@@ -258,6 +260,7 @@ int main(int argc, char** argv) {
                     tmpOrder.barcode_id = barcode_id;
                     tmpOrder.exfdate = isoDate(exfdate);
                     tmpOrder.order_id = order_id;
+                    tmpOrder.closed = (closechk == "T");
 
                     syncState = sync(txn, orderContentMap, tmpOrder);
                     if (syncState < 0) {
@@ -283,6 +286,7 @@ int main(int argc, char** argv) {
                 tmpOrder.barcode_id = barcode_id;
                 tmpOrder.exfdate = isoDate(exfdate);
                 tmpOrder.order_id = order_id;
+                tmpOrder.closed = (closechk == "T");
 
                 syncState = sync(txn, orderContentMap, tmpOrder);
                 if (syncState < 0) {
@@ -425,6 +429,12 @@ int sync(pqxx::work &txn, map<string, order_content> &m, order_content ord) {
             rtn++;
         }
 
+        if (ordm.closed != ord.closed) {
+            cout << " UPDATE " << itr->first << " closed at " << ordm.id << " : " << ordm.closed << " -> " << ord.closed << endl;
+            txn.prepared("update_closed")(ord.closed)(ordm.id).exec();
+            rtn++;
+        }
+
         m.erase(itr);
     } else {
         cout << " NOT FOUND: INSERT " << getKey(ord) << endl;
@@ -446,24 +456,24 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
     if (order == m.end()) {
         // insert new order entry in DB
         txn.conn().prepare("add_order", "INSERT INTO production.order (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
-        pqxx::result r = txn.prepared("add_order")(name)(customer)(isodate).exec();
-        
+        pqxx::result r = txn.prepared("add_order")(name) (customer) (isodate).exec();
+
         if (r.size() != 1) { // if above query returns non-1 results, something is wrong.
             return -1;
         }
 
         int id;
         r[0]["id"].to(id);
-        
+
         // Create an order and insert into the order map
         struct order tmp;
         tmp.id = id;
         tmp.name = name;
         tmp.customer = customer;
         tmp.date = isodate;
-        
-	m[name] = tmp;
-        
+
+        m[name] = tmp;
+
         return id;
 
     } else {
@@ -514,6 +524,7 @@ void generate_order_content_map(pqxx::work &txn, map<string, order_content> &m, 
         r[i]["barcode_id"].to(barcode_id);
         r[i]["exfdate"].to(tmp.exfdate);
         r[i]["order_id"].to(tmp.order_id);
+        r[i]["closed"].to(tmp.closed);
 
         m[barcode_id] = tmp;
         s.insert(barcode_id);
@@ -556,7 +567,7 @@ string trim(string str) {
     }
 
     boost::trim(tmp);
-    
+
     return tmp;
 }
 
