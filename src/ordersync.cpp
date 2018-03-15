@@ -340,13 +340,18 @@ int main(int argc, char** argv) {
         //        int total_post = 0;
         total_post = total_pre + insert - del;
 
-        cout << "Stats (order Synchronization)" << endl
+        if (update == 0 && insert == 0 && del == 0) {
+            cout << "Stats (order Synchronization)" << endl
+                << " Total           = " << total_pre << endl;
+        } else {
+            cout << "Stats (order Synchronization)" << endl
                 << " Total Initial   = " << total_pre << endl
                 << " Passed          = " << pass << endl
                 << " Updated         = " << update << endl
                 << " Inserted    (+) = " << insert << endl
                 << " Deleted     (-) = " << del << endl
                 << " Total Final     = " << total_post << endl;
+        }
 
         // Close DB connection
         c.disconnect();
