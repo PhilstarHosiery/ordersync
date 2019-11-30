@@ -6,7 +6,6 @@
 #include <sstream>
 #include <iomanip>
 #include <set>
-#include <boost/algorithm/string.hpp>
 
 using namespace std;
 
@@ -69,7 +68,6 @@ string getKey(order_content ord);
 string isoDate(string date);
 
 int main(int argc, char** argv) {
-
     if (argc != 3) {
         cout << "Usage: ordersync [db.conf] [prosheet.dbf file]" << endl;
         return 1;
@@ -561,6 +559,8 @@ void generate_item_map(pqxx::work &txn, map<string, int> &m, map<string, int> &m
 // trims parenthesis and all blanks
 
 string trim(string str) {
+
+    // First trim paranthesis contents -> tmp
     int l = 0;
     string tmp = "";
 
@@ -572,9 +572,25 @@ string trim(string str) {
         }
     }
 
-    boost::trim(tmp);
 
-    return tmp;
+    // Find first and last non-space character position, return the substr.
+    bool began = false;
+    int first = 0;
+    int last = 0;
+
+    for (int i = 0; i < tmp.length(); i++) {
+        if (!isspace(tmp[i])) {
+            if (began) {
+                last = i;
+            } else {
+                first = i;
+                last = i;
+                began = true;
+            }
+        }
+    }
+
+    return tmp.substr(first, last - first + 1);
 }
 
 string flatten_key(string artcono, string color, string size) {
