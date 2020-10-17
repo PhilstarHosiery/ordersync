@@ -225,6 +225,15 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            if (reader.getString(articleIdx) == "3642") {
+                if (colorway == "BLACK") colorway = "0005 BLACK";
+                else if (colorway == "NAVY") colorway = "0004 NAVY";
+                else if (colorway == "39 CARAMEL MEL") colorway = "0039 CARAMEL MEL";
+                else if (colorway == "33 DENIM MEL.(SS18)") colorway = "0033 DENIM MEL.(SS18)";
+                else if (colorway == "41 TRUE RED(SS18)") colorway = "0041 TRUE RED(SS18)";
+                else if (colorway == "81 OLYM. BLUE(SS18)") colorway = "0081 OLYM. BLUE(SS18)";
+            }
+
             // Find item id, and sync accordingly
             item = m[flatten_key(artcono, colorway, size)];
             order_id = syncAndFindOrderId(txn, orderMap, orderno, custvar, orddate);
