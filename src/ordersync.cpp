@@ -319,7 +319,7 @@ int main(int argc, char** argv) {
         // if orderMap not empty, remove from DB
         for (auto itr = orderContentMap.begin(); itr != orderContentMap.end(); itr++) {
             cout << " DELETE " << itr->first << endl;
-            txn.prepared("del")(itr->second.id).exec();
+            txn.exec_prepared("del", itr->second.id);
             del++;
         }
 
@@ -361,10 +361,10 @@ int main(int argc, char** argv) {
         }
 
         // Close DB connection
-        c.disconnect();
+        // c.disconnect();
 
-    } catch (const pqxx::pqxx_exception &e) {
-        cerr << "pqxx_exception: " << e.base().what() << endl;
+    } catch (const pqxx::sql_error &e) {
+        cerr << "sql_error: " << e.what() << " / " << e.query() << endl;
         return 1;
     } catch (const std::exception &e) {
         cerr << "exception: " << e.what() << endl;
@@ -395,62 +395,62 @@ int sync(pqxx::work &txn, map<string, order_content> &m, order_content ord) {
 
         if (ordm.date != ord.date) {
             cout << " UPDATE " << itr->first << " date at " << ordm.id << " : " << ordm.date << " -> " << ord.date << endl;
-            txn.prepared("update_date")(ord.date)(ordm.id).exec();
+            txn.exec_prepared("update_date", ord.date, ordm.id);
             rtn++;
         }
 
         if (ordm.customer != ord.customer) {
             cout << " UPDATE " << itr->first << " customer at " << ordm.id << " : " << ordm.customer << " -> " << ord.customer << endl;
-            txn.prepared("update_customer")(ord.customer)(ordm.id).exec();
+            txn.exec_prepared("update_customer", ord.customer, ordm.id);
             rtn++;
         }
 
         if (ordm.orderno != ord.orderno) {
             cout << " UPDATE " << itr->first << " orderno at " << ordm.id << " : " << ordm.orderno << " -> " << ord.orderno << endl;
-            txn.prepared("update_orderno")(ord.orderno)(ordm.id).exec();
+            txn.exec_prepared("update_orderno", ord.orderno, ordm.id);
             rtn++;
         }
 
         if (ordm.item_id != ord.item_id) {
             cout << " UPDATE " << itr->first << " item_id at " << ordm.id << " : " << ordm.item_id << " -> " << ord.item_id << endl;
-            txn.prepared("update_item_id")(ord.item_id)(ordm.id).exec();
+            txn.exec_prepared("update_item_id", ord.item_id, ordm.id);
             rtn++;
         }
 
         if (ordm.quantity != ord.quantity) {
             cout << " UPDATE " << itr->first << " quantity at " << ordm.id << " : " << ordm.quantity << " -> " << ord.quantity << endl;
-            txn.prepared("update_quantity")(ord.quantity)(ordm.id).exec();
+            txn.exec_prepared("update_quantity", ord.quantity, ordm.id);
             rtn++;
         }
 
         if (ordm.quota != ord.quota) {
             cout << " UPDATE " << itr->first << " quota at " << ordm.id << " : " << ordm.quota << " -> " << ord.quota << endl;
-            txn.prepared("update_quota")(ord.quota)(ordm.id).exec();
+            txn.exec_prepared("update_quota", ord.quota, ordm.id);
             rtn++;
         }
 
         if (ordm.exfdate != ord.exfdate) {
             cout << " UPDATE " << itr->first << " exfdate at " << ordm.id << " : " << ordm.exfdate << " -> " << ord.exfdate << endl;
-            txn.prepared("update_exfdate")(ord.exfdate)(ordm.id).exec();
+            txn.exec_prepared("update_exfdate", ord.exfdate, ordm.id);
             rtn++;
         }
 
         if (ordm.order_id != ord.order_id) {
             cout << " UPDATE " << itr->first << " order_id at " << ordm.id << " : " << ordm.order_id << " -> " << ord.order_id << endl;
-            txn.prepared("update_order_id")(ord.order_id)(ordm.id).exec();
+            txn.exec_prepared("update_order_id", ord.order_id, ordm.id);
             rtn++;
         }
 
         if (ordm.closed != ord.closed) {
             cout << " UPDATE " << itr->first << " closed at " << ordm.id << " : " << ordm.closed << " -> " << ord.closed << endl;
-            txn.prepared("update_closed")(ord.closed)(ordm.id).exec();
+            txn.exec_prepared("update_closed", ord.closed, ordm.id);
             rtn++;
         }
 
         m.erase(itr);
     } else {
         cout << " NOT FOUND: INSERT " << getKey(ord) << endl;
-        txn.prepared("add")(ord.date)(ord.customer)(ord.orderno)(ord.item_id)(ord.quantity)(ord.quota)(ord.barcode_id)(ord.exfdate)(ord.order_id).exec();
+        txn.exec_prepared("add", ord.date, ord.customer, ord.orderno, ord.item_id, ord.quantity, ord.quota, ord.barcode_id, ord.exfdate, ord.order_id);
         rtn = -1;
     }
 
@@ -468,7 +468,7 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
     if (order == m.end()) {
         // insert new order entry in DB
         txn.conn().prepare("add_order", "INSERT INTO production.order (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
-        pqxx::result r = txn.prepared("add_order")(name) (customer) (isodate).exec();
+        pqxx::result r = txn.exec_prepared("add_order", name, customer, isodate);
 
         if (r.size() != 1) { // if above query returns non-1 results, something is wrong.
             return -1;
