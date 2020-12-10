@@ -90,6 +90,8 @@ int main(int argc, char** argv) {
         pqxx::connection c(dbstring);
         pqxx::work txn(c);
 
+        c.prepare("add_order", "INSERT INTO production.order (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
+
         // Maps and sets
         map<string, int> m;
         map<string, int> mTrim;
@@ -467,7 +469,6 @@ int syncAndFindOrderId(pqxx::work &txn, map<string, order> &m, string name, stri
     auto order = m.find(name);
     if (order == m.end()) {
         // insert new order entry in DB
-        txn.conn().prepare("add_order", "INSERT INTO production.order (name, customer, subclass, date) VALUES ($1, $2, '', $3) RETURNING id");
         pqxx::result r = txn.exec_prepared("add_order", name, customer, isodate);
 
         if (r.size() != 1) { // if above query returns non-1 results, something is wrong.
