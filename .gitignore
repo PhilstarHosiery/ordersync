@@ -33,3 +33,4 @@ data/*
 db.conf
 ordersync
 test.sh
+nbproject/
